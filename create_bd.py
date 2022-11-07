@@ -8,9 +8,10 @@ def create_bd():
                         CREATE TABLE IF NOT EXISTS users (
                             ID INTEGER NOT NULL,
                             user_id INTEGER NOT NULL,
-                            info VARCHAR, 
+                            info VARCHAR,
                             status VARCHAR NOT NULL,
                             prem_time VARCHAR,
+                            icon VARCHAR,
                             PRIMARY KEY(ID AUTOINCREMENT)
                         )
                     """)
@@ -38,10 +39,8 @@ def create_bd():
                         CREATE TABLE IF NOT EXISTS connection_group (
                             ID INTEGER NOT NULL,
                             id_group VARCHAR NOT NULL,
-                            admin INTEGER NOT NULL,
-                            user_two INTEGER,
-                            user_three INTEGER,
-                            user_four INTEGER,
+                            admin INTEGER NOT NULL,         
+                            user_id INTEGER NOT NULL,
                             how_many_people INTEGER NOT NULL,
                             PRIMARY KEY(ID AUTOINCREMENT)
                         )
@@ -60,3 +59,22 @@ def create_bd():
                             user_id INTEGER NOT NULL
                         )
                     """)
+
+    # Платный контент
+    with sql.connect("todo.db") as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                           CREATE TABLE IF NOT EXISTS request_qiwi (
+                               user_id INTEGER NOT NULL,
+                               special_code VARCHAR NOT NULL
+                           )
+                       """)
+
+    with sql.connect("todo.db") as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                           CREATE TABLE IF NOT EXISTS request_payment_with_confirmation (
+                               user_id INTEGER NOT NULL,
+                               special_code VARCHAR NOT NULL
+                           )
+                       """)
