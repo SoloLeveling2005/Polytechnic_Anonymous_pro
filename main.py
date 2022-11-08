@@ -9,10 +9,13 @@ import datetime
 import threading
 import sqlite3 as sql
 import json
+from SimpleQIWI import *
+from datetime import date
 
+from connect import token_qiwi, phone, price
 from telebot.types import ReplyKeyboardRemove
 
-from connect import bot
+from connect import bot, token
 from create_bd import create_bd
 
 print("Нажмите Ctrl+C если хотите завершить работу бота")
@@ -181,6 +184,82 @@ request_connections_couple_thread.daemon = True
 request_connections_couple_thread.start()
 
 
+def check_premium_time():
+    while True:
+        with sql.connect('todo.db') as con:
+            cur = con.cursor()
+            cur.execute(f"""
+                            SELECT user_id,prem_time FROM users;
+                        """)
+            prem_time = cur.fetchall()
+        current_date = date.today()
+        for i in prem_time:
+
+            if i[1] == str(current_date).split("-")[2]:
+                with sql.connect('todo.db') as con:
+                    cur = con.cursor()
+                    cur.execute(f"""
+                                    UPDATE users SET prem_time = Null WHERE user_id = {i[0]};
+                                """)
+                bot.send_message(i[0],
+                                 f"Месяц истек. Премиум статус отменен", )
+        time.sleep(1)
+
+
+check_premium_time_thread = threading.Thread(target=check_premium_time)
+check_premium_time_thread.daemon = True
+check_premium_time_thread.start()
+
+
+def new_prem_user(message, prem_user):
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        UPDATE users SET status = "premium" WHERE user_id = {prem_user};
+                    """)
+    bot.send_message(message.chat.id,
+                     f"Вы изменили аккаунт юзера на premium")
+    bot.send_message(prem_user,
+                     f"Поздравляю, вы получили премиум")
+
+def dell_prem_user(message, prem_user):
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        UPDATE users SET status = "user" WHERE user_id = {prem_user};
+                    """)
+    bot.send_message(message.chat.id,
+                     f"Вы изменили аккаунт юзера на user")
+    bot.send_message(prem_user,
+                     f"Ваш премиум аккаунт отменен.")
+
+
+def it_is_prem_user(user_id) -> bool:
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        SELECT status FROM users WHERE user_id = {user_id};
+                    """)
+        status = cur.fetchall()
+    if status[0][0] == "premium":
+        return True
+    else:
+        return False
+
+
+def free_requests(user_id) -> bool:
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        SELECT free_requests FROM users WHERE user_id = {user_id};
+                    """)
+        free_request = cur.fetchall()
+    if free_request[0][0] > 1:
+        return True
+    else:
+        return False
+
+
 def reg_user_insert(message):
     user_id = message.chat.id
     with sql.connect('todo.db') as con:
@@ -195,7 +274,7 @@ def reg_user_insert(message):
         with sql.connect("todo.db") as con:
             cur = con.cursor()
             cur.execute(f"""
-                    INSERT INTO users (user_id,status) VALUES({user_id},"user")
+                    INSERT INTO users (user_id,status,free_requests) VALUES({user_id},"user",40)
                     """)
             print("Данные добавлены в таблицу users")
 
@@ -352,6 +431,171 @@ def send_message_from_group_all(message, subject, what):
                 bot.send_sticker(users_id[0], subject)
 
 
+def message_content_type_voice(message, user_id):
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                    SELECT * FROM do WHERE user_id = {user_id};
+                """)
+        user = cur.fetchall()
+    if user:
+        if user[0][1] == "chat":
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                                SELECT * FROM connection_couple WHERE first = {user_id};
+                            """)
+                user_couple = cur.fetchall()
+            if user_couple:
+                if user_couple[0][1] == user_id:
+                    companion = user_couple[0][2]
+                else:
+                    companion = user_couple[0][1]
+                audio_id = message.voice.file_id
+                bot.send_audio(companion, audio_id)
+
+        elif user[0][1] == "chat_group":
+            audio_id = message.voice.file_id
+            send_message_from_group_all(message, audio_id, what="voice")
+
+
+def message_content_type_video(message, user_id):
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        SELECT * FROM do WHERE user_id = {user_id};
+                    """)
+        user = cur.fetchall()
+    if user:
+        if user[0][1] == "chat":
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                    SELECT * FROM connection_couple WHERE first = {user_id};
+                """)
+                user_couple = cur.fetchall()
+            if user_couple:
+                if user_couple[0][1] == user_id:
+                    companion = user_couple[0][2]
+                else:
+                    companion = user_couple[0][1]
+                video_id = message.video.file_id
+                bot.send_video(companion, video_id)
+
+        elif user[0][1] == "chat_group":
+            video_id = message.video.file_id
+            send_message_from_group_all(message, video_id, what="video")
+
+
+def message_content_type_document(message, user_id):
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        SELECT * FROM do WHERE user_id = {user_id};
+                    """)
+        user = cur.fetchall()
+    if user:
+        if user[0][1] == "chat":
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                    SELECT * FROM connection_couple WHERE first = {user_id};
+                """)
+                user_couple = cur.fetchall()
+            if user_couple:
+                if user_couple[0][1] == user_id:
+                    companion = user_couple[0][2]
+                else:
+                    companion = user_couple[0][1]
+                document_id = message.document.file_id
+                bot.send_document(companion, document_id)
+
+        elif user[0][1] == "chat_group":
+            document_id = message.document.file_id
+            send_message_from_group_all(message, document_id, what="document")
+
+
+def message_content_type_sticker(message, user_id):
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        SELECT * FROM do WHERE user_id = {user_id};
+                    """)
+        user = cur.fetchall()
+    if user:
+        if user[0][1] == "chat":
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                    SELECT * FROM connection_couple WHERE first = {user_id};
+                """)
+                user_couple = cur.fetchall()
+            if user_couple:
+                if user_couple[0][1] == user_id:
+                    companion = user_couple[0][2]
+                else:
+                    companion = user_couple[0][1]
+                sticker_id = message.sticker.file_id
+                bot.send_sticker(companion, sticker_id)
+
+        elif user[0][1] == "chat_group":
+            sticker_id = message.sticker.file_id
+            send_message_from_group_all(message, sticker_id, what="sticker")
+
+
+def message_content_type_photo(message, user_id):
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        SELECT * FROM do WHERE user_id = {user_id};
+                    """)
+        user = cur.fetchall()
+    if user:
+        if user[0][1] == "chat":
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                                SELECT * FROM connection_couple WHERE first = {user_id};
+                            """)
+                user_couple = cur.fetchall()
+            if user_couple:
+                if user_couple[0][1] == user_id:
+                    companion = user_couple[0][2]
+                else:
+                    companion = user_couple[0][1]
+                img = message.photo[0].file_id
+                bot.send_photo(companion, img)
+
+        elif user[0][1] == "chat_group":
+            img = message.photo[0].file_id
+            send_message_from_group_all(message, img, what="photo")
+
+
+def it_is_admin(admin_id) -> bool:
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        SELECT user_id FROM admins WHERE user_id = {admin_id};
+                    """)
+        admins = cur.fetchall()
+    if admins:
+        return True
+    else:
+        return False
+
+
+def new_admin(message, id_new_admin):
+    with sql.connect('todo.db') as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        INSERT INTO admins user_id VALUES({id_new_admin})
+                    """)
+    bot.send_message(message.chat.id,
+                     f"Вы назначили нового администратора")
+    bot.send_message(id_new_admin,
+                     f"Вы стали администратором")
+
+
 @bot.message_handler(commands=['start'])
 def start(message):
     print("start")
@@ -382,150 +626,93 @@ def main_menu(message, user_id_disconnect=None):
 
     @bot.message_handler(commands=['buy_premium'])
     def buy_premium(message):
-        pass
+        markup = types.InlineKeyboardMarkup()
+        qiwi_pay = types.InlineKeyboardButton(text="Оплата через киви",
+                                              callback_data="qiwi_pay")
+        other_pay = types.InlineKeyboardButton(text="Иной способ оплаты",
+                                               callback_data="other_pay")
+        info_pay = types.InlineKeyboardButton(text="Подробнее",
+                                              callback_data="info_pay")
+        markup.add(qiwi_pay)
+        markup.add(other_pay)
+        markup.add(info_pay)
+        bot.send_message(message.chat.id,
+                         f"Выберите способ оплаты", reply_markup=markup)
+
+    @bot.message_handler(commands=['new_prem_user'])
+    def new_prem_user_command(message):
+        admin_id = message.chat.id
+        if it_is_admin(admin_id):
+            # Дописаттььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььь (прописать кому сделать аккаунт)
+            new_prem_user(message, user_id)
+
+    @bot.message_handler(commands=['dell_prem_user'])
+    def dell_prem_user_command(message):
+        admin_id = message.chat.id
+        if it_is_admin(admin_id):
+            # Дописаттььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььььь (прописать кому сделать аккаунт)
+            dell_prem_user(message, user_id)
+
+    @bot.message_handler(commands=['new_admin'])
+    def new_prem_user_command(message):
+        with sql.connect('todo.db') as con:
+            cur = con.cursor()
+            cur.execute(f"""
+                            SELECT user_id FROM admins WHERE user_id = {user_id};
+                        """)
+            admins = cur.fetchall()
+        if admins:
+            new_admin(message, admins[0][0])
+
     @bot.message_handler(content_types=["voice", "video", "document", "sticker", "photo", "text"])
     def get_message(message):
         print("Есть контакт")
+        user_id = message.chat.id
         if message.content_type == 'voice':
-
-            user_id = message.chat.id
-            with sql.connect('todo.db') as con:
-                cur = con.cursor()
-                cur.execute(f"""
-                            SELECT * FROM do WHERE user_id = {user_id};
-                        """)
-                user = cur.fetchall()
-            if user:
-                if user[0][1] == "chat":
-                    with sql.connect('todo.db') as con:
-                        cur = con.cursor()
-                        cur.execute(f"""
-                                        SELECT * FROM connection_couple WHERE first = {user_id};
-                                    """)
-                        user_couple = cur.fetchall()
-                    if user_couple:
-                        if user_couple[0][1] == user_id:
-                            companion = user_couple[0][2]
-                        else:
-                            companion = user_couple[0][1]
-                        audio_id = message.voice.file_id
-                        bot.send_audio(companion, audio_id)
-
-                elif user[0][1] == "chat_group":
-                    audio_id = message.voice.file_id
-                    send_message_from_group_all(message, audio_id, what="voice")
+            if it_is_prem_user(user_id):
+                message_content_type_voice(message, user_id)
+            else:
+                if free_requests(user_id):
+                    message_content_type_voice(message, user_id)
+                else:
+                    bot.send_message(user_id,
+                                     f"Пробный периуд истек, для отправки фото, стикеров и прочего приобретите премиум")
         elif message.content_type == 'video':
-
-            user_id = message.chat.id
-            with sql.connect('todo.db') as con:
-                cur = con.cursor()
-                cur.execute(f"""
-                                                                                SELECT * FROM do WHERE user_id = {user_id};
-                                                                            """)
-                user = cur.fetchall()
-            if user:
-                if user[0][1] == "chat":
-                    with sql.connect('todo.db') as con:
-                        cur = con.cursor()
-                        cur.execute(f"""
-                                                                            SELECT * FROM connection_couple WHERE first = {user_id};
-                                                                        """)
-                        user_couple = cur.fetchall()
-                    if user_couple:
-                        if user_couple[0][1] == user_id:
-                            companion = user_couple[0][2]
-                        else:
-                            companion = user_couple[0][1]
-                        video_id = message.video.file_id
-                        bot.send_video(companion, video_id)
-
-                elif user[0][1] == "chat_group":
-                    video_id = message.video.file_id
-                    send_message_from_group_all(message, video_id, what="video")
+            if it_is_prem_user(user_id):
+                message_content_type_video(message, user_id)
+            else:
+                if free_requests(user_id):
+                    message_content_type_video(message, user_id)
+                else:
+                    bot.send_message(user_id,
+                                     f"Пробный периуд истек, для отправки фото, стикеров и прочего приобретите премиум")
         elif message.content_type == "document":
-
-            user_id = message.chat.id
-            with sql.connect('todo.db') as con:
-                cur = con.cursor()
-                cur.execute(f"""
-                                                                    SELECT * FROM do WHERE user_id = {user_id};
-                                                                """)
-                user = cur.fetchall()
-            if user:
-                if user[0][1] == "chat":
-                    with sql.connect('todo.db') as con:
-                        cur = con.cursor()
-                        cur.execute(f"""
-                                                                SELECT * FROM connection_couple WHERE first = {user_id};
-                                                            """)
-                        user_couple = cur.fetchall()
-                    if user_couple:
-                        if user_couple[0][1] == user_id:
-                            companion = user_couple[0][2]
-                        else:
-                            companion = user_couple[0][1]
-                        document_id = message.document.file_id
-                        bot.send_document(companion, document_id)
-
-                elif user[0][1] == "chat_group":
-                    document_id = message.document.file_id
-                    send_message_from_group_all(message, document_id, what="document")
+            if it_is_prem_user(user_id):
+                message_content_type_document(message, user_id)
+            else:
+                if free_requests(user_id):
+                    message_content_type_document(message, user_id)
+                else:
+                    bot.send_message(user_id,
+                                     f"Пробный периуд истек, для отправки фото, стикеров и прочего приобретите премиум")
         elif message.content_type == "sticker":
-            user_id = message.chat.id
-            with sql.connect('todo.db') as con:
-                cur = con.cursor()
-                cur.execute(f"""
-                                                        SELECT * FROM do WHERE user_id = {user_id};
-                                                    """)
-                user = cur.fetchall()
-            if user:
-                if user[0][1] == "chat":
-                    with sql.connect('todo.db') as con:
-                        cur = con.cursor()
-                        cur.execute(f"""
-                                                    SELECT * FROM connection_couple WHERE first = {user_id};
-                                                """)
-                        user_couple = cur.fetchall()
-                    if user_couple:
-                        if user_couple[0][1] == user_id:
-                            companion = user_couple[0][2]
-                        else:
-                            companion = user_couple[0][1]
-                        sticker_id = message.sticker.file_id
-                        bot.send_sticker(companion, sticker_id)
-
-                elif user[0][1] == "chat_group":
-                    sticker_id = message.sticker.file_id
-                    send_message_from_group_all(message, sticker_id, what="sticker")
-
+            if it_is_prem_user(user_id):
+                message_content_type_sticker(message, user_id)
+            else:
+                if free_requests(user_id):
+                    message_content_type_sticker(message, user_id)
+                else:
+                    bot.send_message(user_id,
+                                     f"Пробный периуд истек, для отправки фото, стикеров и прочего приобретите премиум")
         elif message.content_type == "photo":
-            user_id = message.chat.id
-            with sql.connect('todo.db') as con:
-                cur = con.cursor()
-                cur.execute(f"""
-                                            SELECT * FROM do WHERE user_id = {user_id};
-                                        """)
-                user = cur.fetchall()
-            if user:
-                if user[0][1] == "chat":
-                    with sql.connect('todo.db') as con:
-                        cur = con.cursor()
-                        cur.execute(f"""
-                                        SELECT * FROM connection_couple WHERE first = {user_id};
-                                    """)
-                        user_couple = cur.fetchall()
-                    if user_couple:
-                        if user_couple[0][1] == user_id:
-                            companion = user_couple[0][2]
-                        else:
-                            companion = user_couple[0][1]
-                        img = message.photo[0].file_id
-                        bot.send_photo(companion, img)
-
-                elif user[0][1] == "chat_group":
-                    img = message.photo[0].file_id
-                    send_message_from_group_all(message, img, what="photo")
-
+            if it_is_prem_user(user_id):
+                message_content_type_photo(message, user_id)
+            else:
+                if free_requests(user_id):
+                    message_content_type_photo(message, user_id)
+                else:
+                    bot.send_message(user_id,
+                                     f"Пробный периуд истек, для отправки фото, стикеров и прочего приобретите премиум")
         elif message.content_type == "text":
             user_id = message.chat.id
             with sql.connect('todo.db') as con:
@@ -640,6 +827,7 @@ def main_menu(message, user_id_disconnect=None):
             #         find_group(message)
             #         # main_menu(message)
 
+
 # Нужен запуск скрипта если произошла перезагрузка бота
 main_menu(1234)
 
@@ -728,7 +916,7 @@ def cancel_find(message):
                 bot.send_message(message.chat.id,
                                  f"Поиск отменен")
                 print("Поиск отменен")
-                what_do_you_do_insert(message.chat.id, what="main_menu")
+                what_do_you_do_update(message.chat.id, what="main_menu")
                 main_menu(message)
             else:
                 pass
@@ -748,12 +936,68 @@ def cancel_find(message):
                 bot.send_message(message.chat.id,
                                  f"Поиск отменен")
                 print("Поиск отменен")
-                what_do_you_do_insert(message.chat.id, what="main_menu")
+                what_do_you_do_update(message.chat.id, what="main_menu")
                 main_menu(message)
+
+
+def check_qiwi_pay(message):
+    user_id = message.chat.id
+    time_remained = 60 * 10
+    api = QApi(token=token_qiwi, phone=phone)
+    comment = api.bill(price)
+    print("Pay %i rub for %s with comment '%s'" % (price, phone, comment))
+
+    with sql.connect("todo.db") as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                INSERT INTO request_qiwi (user_id,special_code) VALUES({user_id},"{comment}")
+                """)
+        print("Данные добавлены в таблицу request_qiwi")
+
+    bot.send_message(message.chat.id,
+                     f"Ваш код {comment}. Номер телефона {phone}")
+
+    api.start()  # Начинаем прием платежей
+    while True:
+        if api.check(comment):  # Проверяем статус # {'c6704b68-7ca2-4a32-a4cb-79e0bbd337e3': {'price': 1,
+            # 'currency': 643, 'success': True}}
+            print("Платёж получен!")
+            bot.send_message(message.chat.id,
+                             f"Платеж успешно получен! Теперь вы премиум аккаунт")
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                                UPDATE users SET status = "premium" WHERE user_id = {user_id};
+                            """)
+            current_date = date.today()
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                                UPDATE users SET prem_time = {str(current_date).split("-")[2]} WHERE user_id = {user_id};
+                            """)
+            break
+        if time_remained < 0:
+            bot.send_message(message.chat.id,
+                             f"Код деактивирован")
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                                DELETE FROM request_qiwi WHERE user_id = {user_id}
+                            """)
+            break
+        time_remained -= 1
+        time.sleep(1)
+    api.stop()
+    main_menu(message)
+
+
+def check_other_pay():
+    pass
 
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
+    user_id = call.message.chat.id
     if call.message:
         if call.data == "cancel_find":
             try:
@@ -767,6 +1011,74 @@ def callback_inline(call):
                 cancel_find(call.message)
             except:
                 pass
+        elif call.data == "qiwi_pay":
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            second_now = time.time()
+            code = str(second_now).split(".")[0] + str(user_id)
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                                    SELECT * FROM request_qiwi WHERE user_id = {user_id};
+                                """)
+                request_qiwi_db = cur.fetchall()
+            if request_qiwi_db:
+                bot.send_message(call.message.chat.id,
+                                 f"Ваш код {request_qiwi_db[0][1]}. Номер телефона {phone}")
+                main_menu(call.message)
+            else:
+                check_qiwi_pay(call.message)
+
+        elif call.data == "other_pay":
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+
+            second_now = time.time()
+            code = str(second_now).split(".")[0] + str(user_id)
+            with sql.connect('todo.db') as con:
+                cur = con.cursor()
+                cur.execute(f"""
+                                    SELECT * FROM request_payment_with_confirmation WHERE user_id = {user_id};
+                                """)
+                request_payment_with_confirmation_db = cur.fetchall()
+            if request_payment_with_confirmation_db:
+                bot.send_message(call.message.chat.id,
+                                 f"Ваш код {request_payment_with_confirmation_db[0][1]}. Номер телефона {phone}")
+                main_menu(call.message)
+            else:
+                with sql.connect("todo.db") as con:
+                    cur = con.cursor()
+                    cur.execute(f"""
+                            INSERT INTO request_payment_with_confirmation (user_id,special_code) VALUES({user_id},"{code}")
+                            """)
+                    print("Данные добавлены в таблицу request_payment_with_confirmation")
+
+                bot.send_message(call.message.chat.id,
+                                 f"Ваш код {code}. Номер телефона {phone}")
+
+
+        elif call.data == "info_pay":
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            bot.send_message(call.message.chat.id,
+                             f""" У нас присутсвует два способа оплаты. \n1. Через Qiwi. После платежа вам 
+                             автоматически присвоется вип статус. Вы получаете номер телефона и специальный код. В 
+                             переводах в Qiwi вы указываете номер телефона получателя и СПЕЦИАЛЬНЫЙ КОД ОСТАВЛЯЕТСЯ В 
+                             КОММЕНТАРИЯХ! ВНИМАНИЕ! ЕСЛИ ВЫ НЕКОРЕКТНО УКАЖИТЕ КОД, ПЛАТЕЖ НЕ ПРОЙДЕТ И ВАМ ПРИДЕТСЯ 
+                             ОБРАЩАТЬСЯ В ТЕХ ПОДДЕРЖКУ. \n2. Через Каспи и Билайн. ВНИМАНИЕ! 
+                             При оплате через второй способ вам начислиться премиум статус в течении 48 часов. Вы 
+                             получаете номер телефона и код. Код оставляете в комментариях при переводе на номер телефона. 
+                             Код действителен в течении 10 минут. После чего надо будет 
+                             заново пересоздать его (повторить те же действия). 
+                             Если что то пошло не так, обращяйтесь в тех поддержку по номеру +77774208321
+                            """)
+            main_menu(call.message)
 
 
 if __name__ == '__main__':
@@ -781,7 +1093,7 @@ if __name__ == '__main__':
             a = datetime.datetime.today()
             print(e)
             print(a)
-            bot = telebot.TeleBot('5488566542:AAEGQsiDrnLjwFCQb4kmbn7EJYnZqoaIfxk')
+            bot = telebot.TeleBot(token)
             bot.send_message(1303257033,
                              'Сообщение системы: Произошла перезагрузка программы')
             os.system('python main.py')

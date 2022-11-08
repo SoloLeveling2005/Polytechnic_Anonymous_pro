@@ -10,8 +10,18 @@ def create_bd():
                             user_id INTEGER NOT NULL,
                             info VARCHAR,
                             status VARCHAR NOT NULL,
-                            prem_time VARCHAR,
+                            prem_time INTEGER,
                             icon VARCHAR,
+                            free_requests INTEGER,
+                            PRIMARY KEY(ID AUTOINCREMENT)
+                        )
+                    """)
+    with sql.connect("todo.db") as con:
+        cur = con.cursor()
+        cur.execute(f"""
+                        CREATE TABLE IF NOT EXISTS admins (
+                            ID INTEGER NOT NULL,
+                            user_id INTEGER NOT NULL,
                             PRIMARY KEY(ID AUTOINCREMENT)
                         )
                     """)
